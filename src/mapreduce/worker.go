@@ -95,6 +95,7 @@ func RunWorker(MasterAddress string, me string,
 	wk.nRPC = nRPC
 	rpcs := rpc.NewServer()
 	rpcs.Register(wk)
+	fmt.Println(me)
 	os.Remove(me) // only needed for "unix"
 	l, e := net.Listen("unix", me)
 	if e != nil {

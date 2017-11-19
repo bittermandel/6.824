@@ -2,7 +2,6 @@ package mapreduce
 
 import (
 	"encoding/json"
-	"fmt"
 	"hash/fnv"
 	"io/ioutil"
 	"log"
@@ -67,7 +66,6 @@ func doMap(
 	files := make([]*os.File, nReduce)
 	for i := 0; i < nReduce; i++ {
 		rName := reduceName(jobName, mapTaskNumber, i)
-		fmt.Println(rName)
 		f, err := os.OpenFile(rName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0770)
 		if err != nil {
 			log.Println(err)
