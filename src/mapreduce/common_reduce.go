@@ -71,7 +71,6 @@ func doReduce(
 			}
 			kvs[kv.Key] = append(kvs[kv.Key], kv.Value)
 		}
-		os.Remove(f.Name())
 		f.Close()
 	}
 
@@ -85,7 +84,6 @@ func doReduce(
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer f.Close()
 
 	enc := json.NewEncoder(f)
 	for _, key := range sortedKeys {
@@ -93,4 +91,5 @@ func doReduce(
 		kv := KeyValue{key, values}
 		enc.Encode(kv)
 	}
+	f.Close()
 }

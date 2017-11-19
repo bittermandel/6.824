@@ -2,23 +2,44 @@ package mapreduce
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
 )
 
 type AtomicTasks struct {
-	sync.Mutex
-	nTasks int
+	sync.RWMutex
+	Tasks []int
 }
 
-func (a *AtomicTasks) PopTask() (r int) {
+func NewAtomicTasks(ntasks int) AtomicTasks {
+	a := AtomicTasks{}
+	for i := 0; i < ntasks; i++ {
+		a.Tasks = append(a.Tasks, i)
+	}
+
+	return a
+}
+
+func (a *AtomicTasks) GetTasks() (numTasks int) {
+	a.RLock()
+	defer a.RUnlock()
+
+	return len(a.Tasks)
+}
+
+func (a *AtomicTasks) PushTask(task int) {
 	a.Lock()
-	a.nTasks--
-	r = a.nTasks
+	a.Tasks = append(a.Tasks, task)
+
+	a.Unlock()
+}
+
+func (a *AtomicTasks) PopTask() (task int) {
+	a.Lock()
+	task, a.Tasks = a.Tasks[0], a.Tasks[1:]
 
 	a.Unlock()
 
-	return r
+	return task
 }
 
 //
@@ -45,46 +66,37 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	}
 
 	wg := new(sync.WaitGroup)
-	atomicTasks := AtomicTasks{nTasks: ntasks}
-	workerChan := make(chan string)
+	atomicTasks := NewAtomicTasks(ntasks) // Index should start at 0
 
-	go func(workerChan chan string, atomicTasks *AtomicTasks, wg *sync.WaitGroup) {
-		chan_closed := false
-		for worker := range workerChan {
+	for worker := range registerChan {
+		wg.Add(1)
+		if atomicTasks.GetTasks() == 0 {
+			wg.Done()
+			break
+		} else {
 			task := atomicTasks.PopTask()
-			fmt.Println("POPPED TASK" + strconv.Itoa(task))
-			if task < 0 {
-				fmt.Println("WORKER CLOSING" + worker)
-				fmt.Println("CLOSING CHAN")
-				if !chan_closed {
-					chan_closed = true
-					close(registerChan)
-				}
-			} else {
-				args := DoTaskArgs{
-					JobName:       jobName,
-					File:          mapFiles[task],
-					Phase:         phase,
-					TaskNumber:    task,
-					NumOtherPhase: n_other,
-				}
-				go func(wg *sync.WaitGroup, worker string, args DoTaskArgs, workerChan chan string) {
-					wg.Add(1)
-					result := call(worker, "Worker.DoTask", args, nil)
-					fmt.Println(result)
-
-					workerChan <- worker
-
-					wg.Done()
-				}(wg, worker, args, workerChan)
+			args := DoTaskArgs{
+				JobName:       jobName,
+				File:          mapFiles[task],
+				Phase:         phase,
+				TaskNumber:    task,
+				NumOtherPhase: n_other,
 			}
+			go func(wg *sync.WaitGroup, worker string, args DoTaskArgs, registerChan chan string, atomicTasks *AtomicTasks) {
+				result := call(worker, "Worker.DoTask", args, nil)
+				if result {
+					select {
+					case registerChan <- worker:
+					default:
+					}
+				} else {
+					atomicTasks.PushTask(args.TaskNumber)
+				}
+				wg.Done()
+			}(wg, worker, args, registerChan, &atomicTasks)
 		}
-	}(workerChan, &atomicTasks, wg)
-	for rpcAddress := range registerChan {
-		workerChan <- rpcAddress
 	}
 	wg.Wait()
-	close(workerChan)
 
 	fmt.Printf("Schedule: %v %v tasks (%d I/Os)\n", ntasks, phase, n_other)
 
