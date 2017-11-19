@@ -71,7 +71,10 @@ func doReduce(
 			}
 			kvs[kv.Key] = append(kvs[kv.Key], kv.Value)
 		}
+		os.Remove(f.Name())
+		f.Close()
 	}
+
 	var sortedKeys []string
 	for key := range kvs {
 		sortedKeys = append(sortedKeys, key)
@@ -86,10 +89,8 @@ func doReduce(
 
 	enc := json.NewEncoder(f)
 	for _, key := range sortedKeys {
-		enc.Encode(KeyValue{key, reduceF(key, kvs[key])})
-	}
-
-	for _, file := range files {
-		file.Close()
+		values := reduceF(key, kvs[key])
+		kv := KeyValue{key, values}
+		enc.Encode(kv)
 	}
 }
